@@ -1,4 +1,3 @@
-# scope CLOUDFRONT: el Web ACL tiene que crearse en us-east-1.
 locals {
   managed_rule_groups = {
     AWSManagedRulesCommonRuleSet          = 10
@@ -9,8 +8,6 @@ locals {
 }
 
 resource "aws_wafv2_web_acl" "this" {
-  #checkov:skip=CKV_AWS_192:KnownBadInputsRuleSet (Log4j) se agrega en el bloque dynamic
-  #checkov:skip=CKV2_AWS_31:Logs del WAF desactivados por costo
   count = var.enable_waf ? 1 : 0
 
   name        = "${local.name}-edge"
@@ -34,6 +31,26 @@ resource "aws_wafv2_web_acl" "this" {
         limit                 = var.waf_rate_limit
         aggregate_key_type    = "IP"
         evaluation_window_sec = 300
+
+        scope_down_statement {
+          not_statement {
+            statement {
+              byte_match_statement {
+                search_string         = "/api/payments/webhook"
+                positional_constraint = "STARTS_WITH"
+
+                field_to_match {
+                  uri_path {}
+                }
+
+                text_transformation {
+                  priority = 0
+                  type     = "NONE"
+                }
+              }
+            }
+          }
+        }
       }
     }
 

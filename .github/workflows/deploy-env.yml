@@ -1,0 +1,115 @@
+name: deploy-env
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.17.1"
+  AWS_REGION: us-east-1
+  PROJECT: jfc
+
+jobs:
+  deploy:
+    name: Desplegar ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      ENV: ${{ inputs.environment }}
+      ARTIFACTS_BUCKET: ${{ vars.ARTIFACTS_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: terraform apply
+        working-directory: infra/envs/${{ inputs.environment }}
+        run: |
+          terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform apply -input=false -auto-approve
+          {
+            echo "FRONTEND_BUCKET=$(terraform output -raw frontend_bucket)"
+            echo "DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id)"
+            echo "COGNITO_USER_POOL_ID=$(terraform output -raw cognito_user_pool_id)"
+            echo "COGNITO_CLIENT_ID=$(terraform output -raw cognito_client_id)"
+            echo "SITE_URL=$(terraform output -raw site_url)"
+            echo "API_EXECUTE_URL=$(terraform output -raw api_execute_url)"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Desplegar Lambdas
+        run: |
+          for svc in catalog users orders inventory payments notifications; do
+            src="services/$svc"
+            if [ ! -d "$src" ]; then
+              echo "::warning::No existe $src; se omite $svc"
+              continue
+            fi
+
+            fn="$PROJECT-$ENV-$svc"
+            key="$ENV/$svc/$GITHUB_SHA.zip"
+
+            rm -rf build && mkdir build
+            if [ -f "$src/requirements.txt" ]; then
+              pip install -r "$src/requirements.txt" -t build --quiet \
+                --platform manylinux2014_aarch64 --only-binary=:all: --python-version 3.13
+            fi
+            cp -r "$src"/. build/
+            (cd build && zip -qr "../$svc.zip" .)
+
+            aws s3 cp "$svc.zip" "s3://$ARTIFACTS_BUCKET/$key"
+            aws lambda update-function-code --function-name "$fn" \
+              --s3-bucket "$ARTIFACTS_BUCKET" --s3-key "$key" > /dev/null
+            aws lambda wait function-updated --function-name "$fn"
+            version=$(aws lambda publish-version --function-name "$fn" \
+              --description "$GITHUB_SHA" --query Version --output text)
+            aws lambda update-alias --function-name "$fn" --name live \
+              --function-version "$version" > /dev/null
+            echo "$fn -> versión $version" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/setup-node@v4
+        if: hashFiles('frontend/package.json') != ''
+        with:
+          node-version: "22"
+
+      - name: Desplegar frontend
+        if: hashFiles('frontend/package.json') != ''
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          aws s3 sync dist/ "s3://$FRONTEND_BUCKET/" --delete \
+            --exclude index.html --cache-control "public, max-age=31536000, immutable"
+          aws s3 cp dist/index.html "s3://$FRONTEND_BUCKET/index.html" --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
+            --paths "/index.html" > /dev/null
+
+      - name: Pruebas de humo
+        run: |
+          check() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 5 "$2")
+            echo "$2 -> $code (esperado $1)" | tee -a "$GITHUB_STEP_SUMMARY"
+            [ "$code" = "$1" ]
+          }
+          check 200 "$SITE_URL/"
+          check 200 "$SITE_URL/api/products"
+          check 403 "$API_EXECUTE_URL/api/products"

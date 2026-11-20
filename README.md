@@ -10,14 +10,11 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 
 | Entregable | Archivo | Estado |
 |---|---|---|
-| Documento de arquitectura | [PDF](docs/Documento-Arquitectura-JFC-v1.pdf) · [Word](docs/Documento-Arquitectura-JFC-v1.docx) | ✅ Listo |
-| Diagrama de arquitectura general | [PNG](docs/diagramas/01-arquitectura-general-v1.png) · [draw.io](docs/diagramas/01-arquitectura-general-v1.drawio) | ✅ Listo |
-| Flujo de compra por eventos | [PNG](docs/diagramas/02-flujo-compra-eventos-v1.png) · [draw.io](docs/diagramas/02-flujo-compra-eventos-v1.drawio) | ✅ Listo |
-| Pipeline de CI/CD | [PNG](docs/diagramas/03-pipeline-cicd-v1.png) · [draw.io](docs/diagramas/03-pipeline-cicd-v1.drawio) | ✅ Diseño listo |
-| Infraestructura como código (Terraform) | [`infra/`](infra/) | 🟡 Módulo `edge` listo (CloudFront, S3, WAF) con entornos `dev`/`prod` y pruebas; resto en construcción |
-| Estimación de costos (Calculadora de AWS) | [`docs/costos/`](docs/costos/) | 🚧 En construcción |
-
-> Los archivos `.drawio` se abren y editan en [diagrams.net](https://app.diagrams.net) o con la extensión de draw.io para VS Code.
+| Documento de arquitectura | [PDF](docs/Documento-Arquitectura-JFC-v1.pdf) | ✅ Listo |
+| Diagrama de arquitectura general | [PNG](docs/diagramas/01-arquitectura-general-v1.png) | ✅ Listo |
+| Flujo de compra por eventos | [PNG](docs/diagramas/02-flujo-compra-eventos-v1.png) | ✅ Listo |
+| Pipeline de CI/CD | [PNG](docs/diagramas/03-pipeline-cicd-v1.png) · [workflows](.github/workflows/) | ✅ Listo |
+| Infraestructura como código (Terraform) | [`infra/`](infra/) | ✅ Listo |
 
 ## Resumen de la solución
 
@@ -48,12 +45,26 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 
 ```
 .
+├── .github/
+│   └── workflows/
 ├── docs/
 │   ├── Documento-Arquitectura-JFC-v1.pdf
-│   ├── Documento-Arquitectura-JFC-v1.docx
-│   ├── diagramas/        # PNG + .drawio editables
-│   └── costos/           # Calculadora de AWS (en construcción)
-└── infra/                # Terraform: modules/edge + envs/dev y envs/prod
+│   └── diagramas/
+└── infra/
+    ├── bootstrap/
+    ├── global/
+    ├── envs/
+    │   ├── dev/
+    │   └── prod/
+    └── modules/
+        ├── api/
+        ├── ecommerce/
+        ├── edge/
+        ├── identity/
+        ├── microservice/
+        ├── observability/
+        ├── platform/
+        └── private-bucket/
 ```
 
 ## Evolución (v2)

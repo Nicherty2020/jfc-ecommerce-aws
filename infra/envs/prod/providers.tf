@@ -1,21 +1,23 @@
 terraform {
-  required_version = ">= 1.7.0"
+  required_version = ">= 1.11.0"
 
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 
-  # Pendiente: estado remoto en S3.
-  # backend "s3" {
-  #   bucket       = "jfc-tfstate-<ID_CUENTA>"
-  #   key          = "prod/edge.tfstate"
-  #   region       = "us-east-1"
-  #   encrypt      = true
-  #   use_lockfile = true
-  # }
+  backend "s3" {
+    key          = "prod/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
 }
 
 provider "aws" {

@@ -13,6 +13,11 @@ output "distribution_domain_name" {
   value       = aws_cloudfront_distribution.this.domain_name
 }
 
+output "site_url" {
+  description = "URL pública del sitio."
+  value       = "https://${local.has_domain ? var.domain_name : aws_cloudfront_distribution.this.domain_name}"
+}
+
 output "frontend_bucket_name" {
   description = "Bucket donde el pipeline copia el build del frontend."
   value       = aws_s3_bucket.frontend.bucket

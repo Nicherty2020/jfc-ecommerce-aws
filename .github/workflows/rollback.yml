@@ -1,0 +1,54 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Entorno
+        type: choice
+        options: [dev, prod]
+      service:
+        description: Servicio
+        type: choice
+        options: [catalog, users, orders, inventory, payments, notifications]
+      version:
+        description: Versión destino (vacío = la anterior a la actual)
+        required: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  rollback:
+    name: Rollback ${{ inputs.service }} en ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Mover el alias live
+        env:
+          FN: jfc-${{ inputs.environment }}-${{ inputs.service }}
+          TARGET: ${{ inputs.version }}
+        run: |
+          current=$(aws lambda get-alias --function-name "$FN" --name live \
+            --query FunctionVersion --output text)
+
+          if [ -z "$TARGET" ]; then
+            TARGET=$(aws lambda list-versions-by-function --function-name "$FN" \
+              --query "Versions[?Version!='\$LATEST'].Version" --output text \
+              | tr '\t' '\n' | sort -n | awk -v c="$current" '$1 < c' | tail -n 1)
+          fi
+
+          if [ -z "$TARGET" ]; then
+            echo "::error::No hay una versión anterior a la $current"
+            exit 1
+          fi
+
+          aws lambda update-alias --function-name "$FN" --name live \
+            --function-version "$TARGET" > /dev/null
+          echo "$FN: live pasó de la versión $current a la $TARGET" | tee -a "$GITHUB_STEP_SUMMARY"

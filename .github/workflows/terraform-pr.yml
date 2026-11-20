@@ -1,0 +1,81 @@
+name: terraform-pr
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.17.1"
+  AWS_REGION: us-east-1
+
+jobs:
+  validar:
+    name: Formato, pruebas y validación
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Formato
+        run: terraform fmt -check -recursive infra
+
+      - name: Pruebas de los módulos
+        run: |
+          for m in api edge microservice ecommerce; do
+            terraform -chdir=infra/modules/$m init -backend=false -input=false
+            terraform -chdir=infra/modules/$m test
+          done
+
+      - name: Validación de las raíces
+        run: |
+          for r in bootstrap global envs/dev envs/prod; do
+            terraform -chdir=infra/$r init -backend=false -input=false
+            terraform -chdir=infra/$r validate
+          done
+
+  plan:
+    name: Plan ${{ matrix.environment }}
+    needs: validar
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+    defaults:
+      run:
+        working-directory: infra/envs/${{ matrix.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Init
+        run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Plan
+        run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan
+          {
+            echo "### Plan de ${{ matrix.environment }}"
+            echo '```'
+            terraform show -no-color tfplan | tail -n 300
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

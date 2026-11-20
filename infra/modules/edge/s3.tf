@@ -6,10 +6,6 @@ locals {
 }
 
 resource "aws_s3_bucket" "frontend" {
-  #checkov:skip=CKV_AWS_18:Solo CloudFront lee el bucket; CloudTrail audita la gestión
-  #checkov:skip=CKV_AWS_144:Replicación entre regiones fuera del alcance de la v1
-  #checkov:skip=CKV_AWS_145:SSE-S3 es suficiente para contenido público
-  #checkov:skip=CKV2_AWS_62:Sin consumidores de eventos de S3
   bucket        = local.bucket_name
   force_destroy = var.force_destroy_bucket
   tags          = var.tags

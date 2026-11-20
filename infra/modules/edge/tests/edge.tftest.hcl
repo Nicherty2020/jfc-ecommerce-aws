@@ -5,10 +5,41 @@ mock_provider "aws" {
     }
   }
 
-  # El provider valida que function_arn tenga formato de ARN.
   mock_resource "aws_cloudfront_function" {
     defaults = {
       arn = "arn:aws:cloudfront::123456789012:function/jfc-spa-rewrite"
+    }
+  }
+
+  mock_resource "aws_acm_certificate" {
+    defaults = {
+      arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+      domain_validation_options = [{
+        domain_name           = "tienda.example.com"
+        resource_record_name  = "_abc.tienda.example.com."
+        resource_record_type  = "CNAME"
+        resource_record_value = "_xyz.acm-validations.aws."
+      }]
+    }
+  }
+
+  mock_resource "aws_acm_certificate_validation" {
+    defaults = {
+      certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000"
+    }
+  }
+
+  mock_resource "aws_cloudfront_distribution" {
+    defaults = {
+      arn            = "arn:aws:cloudfront::123456789012:distribution/EDFDVBD6EXAMPLE"
+      domain_name    = "d111111abcdef8.cloudfront.net"
+      hosted_zone_id = "Z2FDTNDATAQYW2"
+    }
+  }
+
+  mock_resource "aws_wafv2_web_acl" {
+    defaults = {
+      arn = "arn:aws:wafv2:us-east-1:123456789012:global/webacl/jfc-prod-edge/00000000-0000-0000-0000-000000000000"
     }
   }
 }
@@ -72,14 +103,16 @@ run "solo_frontend" {
   }
 }
 
-run "frontend_api_y_waf" {
+run "frontend_api_waf_y_plan_free" {
   command = apply
 
   variables {
     environment       = "prod"
     enable_waf        = true
+    pricing_plan_tier = "FREE"
     api_origin_domain = "abc123.execute-api.us-east-1.amazonaws.com"
     api_origin_path   = "/v1"
+    api_origin_key    = "clave-de-prueba"
   }
 
   assert {
@@ -88,13 +121,21 @@ run "frontend_api_y_waf" {
   }
 
   assert {
+    condition = nonsensitive(anytrue([
+      for o in aws_cloudfront_distribution.this.origin :
+      o.origin_id == "api-gateway" && contains([for h in o.custom_header : h.name], "x-api-key")
+    ]))
+    error_message = "CloudFront debe enviar la x-api-key al origen de la API (D10)."
+  }
+
+  assert {
     condition     = aws_cloudfront_distribution.this.ordered_cache_behavior[0].path_pattern == "/api/products*"
     error_message = "El catálogo debe evaluarse antes que /api/*."
   }
 
   assert {
-    condition     = aws_cloudfront_distribution.this.ordered_cache_behavior[0].cache_policy_id == aws_cloudfront_cache_policy.catalog[0].id
-    error_message = "El catálogo debe usar su política de caché propia."
+    condition     = aws_cloudfront_distribution.this.ordered_cache_behavior[0].cache_policy_id == data.aws_cloudfront_cache_policy.caching_optimized.id
+    error_message = "El catálogo debe usar CachingOptimized: el TTL lo fija el max-age del origen (S11)."
   }
 
   assert {
@@ -108,11 +149,6 @@ run "frontend_api_y_waf" {
   }
 
   assert {
-    condition     = aws_cloudfront_cache_policy.catalog[0].default_ttl == 60 && aws_cloudfront_cache_policy.catalog[0].max_ttl == 300
-    error_message = "El TTL del catálogo debe estar entre 1 y 5 minutos."
-  }
-
-  assert {
     condition     = aws_wafv2_web_acl.this[0].scope == "CLOUDFRONT"
     error_message = "El WAF debe tener scope CLOUDFRONT."
   }
@@ -123,8 +159,23 @@ run "frontend_api_y_waf" {
   }
 
   assert {
+    condition = one([
+      for r in aws_wafv2_web_acl.this[0].rule : r if r.name == "limite-tasa-por-ip"
+    ]).statement[0].rate_based_statement[0].scope_down_statement[0].not_statement[0].statement[0].byte_match_statement[0].search_string == "/api/payments/webhook"
+    error_message = "La regla de tasa debe excluir el webhook de la pasarela."
+  }
+
+  assert {
     condition     = aws_cloudfront_distribution.this.web_acl_id == aws_wafv2_web_acl.this[0].arn
     error_message = "La distribución debe estar asociada al WAF."
+  }
+
+  assert {
+    condition = (
+      aws_pricingplanmanager_subscription.this[0].plan_tier == "FREE" &&
+      aws_pricingplanmanager_subscription.this[0].resource_arns == toset([aws_cloudfront_distribution.this.arn, aws_wafv2_web_acl.this[0].arn])
+    )
+    error_message = "El plan Free debe cubrir la distribución y su WAF (D11)."
   }
 
   assert {
@@ -141,15 +192,68 @@ run "frontend_api_y_waf" {
   }
 }
 
-run "dominio_sin_certificado_falla" {
+run "con_dominio_propio" {
+  command = apply
+
+  variables {
+    environment    = "prod"
+    domain_name    = "tienda.example.com"
+    hosted_zone_id = "Z0123456789ABCDEFGHIJ"
+  }
+
+  assert {
+    condition     = aws_acm_certificate.this[0].validation_method == "DNS"
+    error_message = "El certificado debe validarse por DNS."
+  }
+
+  assert {
+    condition     = contains(aws_cloudfront_distribution.this.aliases, "tienda.example.com")
+    error_message = "La distribución debe responder en el dominio propio."
+  }
+
+  assert {
+    condition     = aws_cloudfront_distribution.this.viewer_certificate[0].minimum_protocol_version == "TLSv1.2_2021"
+    error_message = "Con dominio propio, el mínimo debe ser TLS 1.2."
+  }
+
+  assert {
+    condition     = length(aws_route53_record.alias) == 2
+    error_message = "Deben existir los alias A y AAAA hacia CloudFront."
+  }
+}
+
+run "api_sin_api_key_falla" {
+  command = plan
+
+  variables {
+    environment       = "dev"
+    api_origin_domain = "abc123.execute-api.us-east-1.amazonaws.com"
+  }
+
+  expect_failures = [var.api_origin_key]
+}
+
+run "plan_sin_waf_falla" {
+  command = plan
+
+  variables {
+    environment       = "dev"
+    enable_waf        = false
+    pricing_plan_tier = "FREE"
+  }
+
+  expect_failures = [var.pricing_plan_tier]
+}
+
+run "dominio_sin_zona_falla" {
   command = plan
 
   variables {
     environment = "dev"
-    aliases     = ["tienda.example.com"]
+    domain_name = "tienda.example.com"
   }
 
-  expect_failures = [aws_cloudfront_distribution.this]
+  expect_failures = [var.hosted_zone_id]
 }
 
 run "entorno_invalido_falla" {

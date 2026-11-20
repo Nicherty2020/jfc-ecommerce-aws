@@ -1,5 +1,6 @@
 # Terraform: nunca subir estado, planes ni variables con secretos
 .terraform/
+.build/
 *.tfstate
 *.tfstate.*
 *.tfplan
