@@ -1,0 +1,28 @@
+# Terraform: nunca subir estado, planes ni variables con secretos
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+# Los terraform.tfvars de envs/ solo tienen configuración (sin secretos): sí se versionan.
+*.secret.tfvars
+crash.*.log
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+override.tf
+override.tf.json
+
+# Credenciales y entorno
+.env
+.env.*
+*.pem
+*.key
+
+# Sistema y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+~$*
