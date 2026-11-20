@@ -11,6 +11,7 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 | Entregable | Archivo | Estado |
 |---|---|---|
 | Documento de arquitectura | [PDF](docs/Documento-Arquitectura-JFC-v1.pdf) | ✅ Listo |
+| Estimación de costos (mes típico, Calculadora de AWS) | [PDF](docs/Estimacion-Costos-Mes-Tipico.pdf) | ✅ Listo |
 | Diagrama de arquitectura general | [PNG](docs/diagramas/01-arquitectura-general-v1.png) | ✅ Listo |
 | Flujo de compra por eventos | [PNG](docs/diagramas/02-flujo-compra-eventos-v1.png) | ✅ Listo |
 | Pipeline de CI/CD | [PNG](docs/diagramas/03-pipeline-cicd-v1.png) · [workflows](.github/workflows/) | ✅ Listo |
@@ -18,7 +19,7 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 
 ## Resumen de la solución
 
-- **Pago por uso:** Lambda, API Gateway, DynamoDB on-demand, SQS y EventBridge cobran por petición. Sin servidores, NAT Gateways ni bases de datos encendidas 24/7.
+- **Pago por uso:** Lambda, API Gateway, DynamoDB on-demand, SQS y EventBridge cobran por petición. Sin servidores, NAT Gateways ni bases de datos encendidas 24/7. El mes típico cuesta unos USD 898 (USD 0,010 por pedido) y solo unos USD 15 son fijos.
 - **El borde absorbe el pico:** CloudFront sirve desde caché el catálogo (~90 % del tráfico) y AWS WAF filtra bots y ataques.
 - **Compra asíncrona y a prueba de fallos:** el checkout responde 202 y sigue por eventos (EventBridge + SQS) con reintentos, DLQ, idempotencia y escrituras condicionales que evitan la sobreventa.
 - **Seguridad por capas:** WAF, Cognito, IAM de mínimo privilegio por función, KMS, Secrets Manager, S3 privado con OAC, origen de la API protegido y pasarela de pagos externa (la tarjeta nunca toca JFC).
@@ -31,7 +32,7 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 |---|---|---|
 | Diagrama de arquitectura (obligatorio) | Tres diagramas con íconos oficiales de AWS | 3, 5, 9 |
 | IaC reutilizable | Terraform modular con entornos `dev` y `prod` por variables | 10.2 |
-| Costos / pagar solo lo consumido | Servicios por uso; costos fijos mínimos y explícitos | 10.1 |
+| Costos / pagar solo lo consumido | Calculadora de Precios de AWS: mes típico USD 898 al mes, valle USD 203 y estrés USD 2.348; solo unos USD 15 son fijos | 10.1 |
 | Picos y solicitudes simultáneas | Caché en el borde, Lambda y DynamoDB on-demand, SQS como colchón, throttling | 6.1 – 6.4 |
 | Sistema de caché | Navegador, CloudFront (con `stale-if-error`) y memoria de Lambda | 6.3 |
 | Disponibilidad permanente | Servicios multi-AZ administrados, reintentos, DLQ, PITR | 6.5 |
@@ -49,6 +50,7 @@ JFC necesita poner en producción un e-commerce de tres capas con tráfico varia
 │   └── workflows/
 ├── docs/
 │   ├── Documento-Arquitectura-JFC-v1.pdf
+│   ├── Estimacion-Costos-Mes-Tipico.pdf
 │   └── diagramas/
 └── infra/
     ├── bootstrap/
